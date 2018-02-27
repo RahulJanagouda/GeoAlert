@@ -1,39 +1,39 @@
 package com.rj.geoalert;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Service;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.provider.Settings;
-import android.support.v4.app.ActivityCompat;
-import android.support.v7.app.AlertDialog;
 import android.util.Log;
 import android.widget.Toast;
 
-import com.google.android.gms.maps.model.LatLng;
+import static android.location.LocationManager.GPS_PROVIDER;
+import static android.location.LocationManager.NETWORK_PROVIDER;
+import static com.rj.geoalert.Constants.DEFAULT_RADIUS;
+import static com.rj.geoalert.Constants.INTENT_KEY_CENTER;
+import static com.rj.geoalert.Constants.INTENT_KEY_RADIUS;
 
 public class LocationService extends Service {
 
+    private static final int FOREGROUND = 284;
     public static final String BROADCAST_ACTION = "GeoMapNewLocationBroadCast";
     public static final String LOCATION_KEY = "NewLocationKey";
     private static final int TWO_MINUTES = 1000 * 60 * 2;
 
-    private static final long MIN_DISTANCE_CHANGE_FOR_UPDATES = 10; // 10 meters
-    private static final long MIN_TIME_BW_UPDATES = 1000 * 60 * 1; // 1 minute
+    private static final long MIN_DISTANCE_CHANGE_FOR_UPDATES = 100; // 100 meters
+    private static final long MIN_TIME_BW_UPDATES = 1000 * 60 * 5 ; // 5 minute
+    private static final String TAG = LocationService.class.getSimpleName();
 
-    public LocationManager locationManager;
-    public MyLocationListener listener;
-    public Location previousBestLocation = null;
+    private LocationManager locationManager;
+    private MyLocationListener listener;
+    private Location previousBestLocation = null;
 
-    Intent intent;
+    private Intent broadcastIntent;
 
     public LocationService() {
     }
@@ -41,17 +41,28 @@ public class LocationService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        intent = new Intent(BROADCAST_ACTION);
+        broadcastIntent = new Intent(BROADCAST_ACTION);
+        Log.i(TAG, "Service onCreate");
+        startForeground(FOREGROUND, new NotificationHelper(this).getOnGoingNotification("Location Service", "Running").build());
     }
+
 
     @SuppressLint("MissingPermission")
     @Override
-    public void onStart(Intent intent, int startId) {
+    public int onStartCommand(final Intent intent, int flags, int startId) {
+        Log.i(TAG, "Service onStartCommand");
+
+
+        broadcastIntent.putExtra(INTENT_KEY_RADIUS, intent.getIntExtra(INTENT_KEY_RADIUS, DEFAULT_RADIUS));
+        broadcastIntent.putExtra(INTENT_KEY_CENTER, intent.getParcelableExtra(INTENT_KEY_CENTER));
+
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         listener = new MyLocationListener();
-        locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, MIN_TIME_BW_UPDATES, MIN_DISTANCE_CHANGE_FOR_UPDATES, listener);
+        locationManager.requestLocationUpdates(NETWORK_PROVIDER, MIN_TIME_BW_UPDATES, MIN_DISTANCE_CHANGE_FOR_UPDATES, listener);
         locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, MIN_TIME_BW_UPDATES, MIN_DISTANCE_CHANGE_FOR_UPDATES, listener);
         locationManager.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, MIN_TIME_BW_UPDATES, MIN_DISTANCE_CHANGE_FOR_UPDATES, listener);
+
+        return START_REDELIVER_INTENT;
     }
 
     @Override
@@ -64,17 +75,30 @@ public class LocationService extends Service {
 
         public void onLocationChanged(final Location location) {
             if (isBetterLocation(location, previousBestLocation)) {
-                intent.putExtra(LOCATION_KEY, location);
-                sendBroadcast(intent);
+                broadcastIntent.putExtra(LOCATION_KEY, location);
+                sendBroadcast(broadcastIntent);
+                previousBestLocation = location;
             }
         }
 
         public void onProviderDisabled(String provider) {
-            Toast.makeText(getApplicationContext(), "Gps Disabled", Toast.LENGTH_SHORT).show();
+            if(provider.equalsIgnoreCase(NETWORK_PROVIDER)){
+                Toast.makeText(getApplicationContext(), "No Network", Toast.LENGTH_SHORT).show();
+            }
+
+            if(provider.equalsIgnoreCase(GPS_PROVIDER)){
+                Toast.makeText(getApplicationContext(), "Please turn on GPS to work", Toast.LENGTH_SHORT).show();
+            }
         }
 
         public void onProviderEnabled(String provider) {
-            Toast.makeText(getApplicationContext(), "Gps Enabled", Toast.LENGTH_SHORT).show();
+            if(provider.equalsIgnoreCase(NETWORK_PROVIDER)){
+                Toast.makeText(getApplicationContext(), "Network turned on", Toast.LENGTH_SHORT).show();
+            }
+
+            if(provider.equalsIgnoreCase(GPS_PROVIDER)){
+                Toast.makeText(getApplicationContext(), "GPS turned on", Toast.LENGTH_SHORT).show();
+            }
         }
 
         public void onStatusChanged(String provider, int status, Bundle extras) {
@@ -86,11 +110,13 @@ public class LocationService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (locationManager!=null)
-        locationManager.removeUpdates(listener);
+        if (locationManager != null)
+            locationManager.removeUpdates(listener);
+        Log.i(TAG, "Service onDestroy");
+
     }
 
-    protected boolean isBetterLocation(Location location, Location currentBestLocation) {
+    private boolean isBetterLocation(Location location, Location currentBestLocation) {
         if (currentBestLocation == null) {
             // A new previousBestLocation is always better than no previousBestLocation
             return true;

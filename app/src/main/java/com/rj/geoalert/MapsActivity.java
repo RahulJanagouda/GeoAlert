@@ -1,16 +1,22 @@
 package com.rj.geoalert;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
+import android.app.NotificationManager;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.location.Location;
+import android.location.LocationManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.v4.app.FragmentActivity;
-import android.support.v4.content.LocalBroadcastManager;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
@@ -32,8 +38,15 @@ import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.AppSettingsDialog;
 import pub.devrel.easypermissions.EasyPermissions;
 
+import static com.rj.geoalert.Constants.DEFAULT_RADIUS;
+import static com.rj.geoalert.Constants.INTENT_KEY_CENTER;
+import static com.rj.geoalert.Constants.INTENT_KEY_RADIUS;
+import static com.rj.geoalert.Constants.KEY_IS_ALERT_SET;
+import static com.rj.geoalert.Constants.KEY_LOCATION_LATITUDE;
+import static com.rj.geoalert.Constants.KEY_LOCATION_LONGITUDE;
+import static com.rj.geoalert.Constants.KEY_SELECTED_LATITUDE;
+import static com.rj.geoalert.Constants.KEY_SELECTED_LONGITUDE;
 import static com.rj.geoalert.Constants.RC_LOCATION_PERM;
-import static com.rj.geoalert.LocationService.LOCATION_KEY;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, EasyPermissions.PermissionCallbacks, Observer {
 
@@ -41,14 +54,18 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private GoogleMap mMap;
     private LatLng selectedLocation;
     private LatLng currentLocation;
-    private int mFillColorArgb = Color.HSVToColor(70, new float[]{1, 1, 1});
-
-    private Integer radiusInMeters = 50; //default radius to see the previousBestLocation
+    private final int geoFenceColorArgb = Color.HSVToColor(70, new float[]{1, 1, 1});
+    private Integer radiusInMeters; //default radius to see the previousBestLocation
 
     private static final String[] LOCATION = {
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
     };
+
+    private boolean isAlertSet = false;
+    private EditText radiusEditText;
+    private Button alertButton;
+    private LocationManager locationManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,10 +73,24 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         setContentView(R.layout.activity_maps);
 
         ObservableObject.getInstance().addObserver(this);
+        SharedPreferences sp = getPreferences(Context.MODE_PRIVATE);
+        final SharedPreferences.Editor editor = sp.edit();
 
-        EditText radiusEditText = findViewById(R.id.radiusEditText);
-        Button alertButton = findViewById(R.id.alertButton);
+        isAlertSet = sp.getBoolean(KEY_IS_ALERT_SET, false);
+        selectedLocation = new LatLng(sp.getFloat(KEY_SELECTED_LATITUDE, 17.3850f),
+                sp.getFloat(KEY_SELECTED_LONGITUDE, 78.4867f));
+        radiusInMeters = sp.getInt(INTENT_KEY_RADIUS, DEFAULT_RADIUS);
 
+        currentLocation = new LatLng(sp.getFloat(KEY_LOCATION_LATITUDE, 17.3850f),
+                sp.getFloat(KEY_LOCATION_LONGITUDE, 78.4867f));
+
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+
+
+        radiusEditText = findViewById(R.id.radiusEditText);
+        alertButton = findViewById(R.id.alertButton);
+
+        radiusEditText.setText("" + radiusInMeters);
         radiusEditText.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -68,9 +99,12 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
-                if (s.length() != 0)
+                if (s.length() != 0) {
                     radiusInMeters = Integer.parseInt(s.toString());
+                    editor.putInt(INTENT_KEY_RADIUS, radiusInMeters).apply();
+                }
                 setPoints();
+
             }
 
             @Override
@@ -79,12 +113,73 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }
         });
 
+        alertButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent intent = new Intent(v.getContext(), LocationService.class);
+                intent.putExtra(INTENT_KEY_RADIUS, radiusInMeters);
+                intent.putExtra(INTENT_KEY_CENTER, selectedLocation);
+                if (!isAlertSet) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent);
+                    } else {
+                        startService(intent);
+                    }
+
+                    alertButton.setText(R.string.stop);
+                    radiusEditText.setEnabled(false);
+                    isAlertSet = true;
+
+                } else {
+                    stopService(intent);
+
+                    alertButton.setText(R.string.set_alert);
+                    radiusEditText.setEnabled(true);
+
+                    isAlertSet = false;
+                    NotificationManager notificationManager = (NotificationManager) getApplicationContext().getSystemService(Context.NOTIFICATION_SERVICE);
+                    if (notificationManager != null) {
+                        notificationManager.cancelAll();
+                    }
+
+                }
+                editor.putBoolean(KEY_IS_ALERT_SET, isAlertSet).apply();
+            }
+        });
+
+
+        if (isAlertSet) {
+            alertButton.setText(R.string.stop);
+            radiusEditText.setEnabled(false);
+        } else {
+            alertButton.setText(R.string.set_alert);
+            radiusEditText.setEnabled(true);
+        }
+
+
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
         setupLocationAccess();
 
+    }
+
+    @Override
+    public void onRestoreInstanceState(Bundle savedInstanceState) {
+        this.radiusInMeters = savedInstanceState.getInt(INTENT_KEY_RADIUS);
+        this.selectedLocation = savedInstanceState.getParcelable(INTENT_KEY_CENTER);
+        this.isAlertSet = savedInstanceState.getBoolean(KEY_IS_ALERT_SET);
+    }
+
+    @Override
+    public void onSaveInstanceState(Bundle outState) {
+        outState.putInt(INTENT_KEY_RADIUS, radiusInMeters);
+        outState.putParcelable(INTENT_KEY_CENTER, selectedLocation);
+        outState.putBoolean(KEY_IS_ALERT_SET, isAlertSet);
+
+        // call superclass to save any view hierarchy
+        super.onSaveInstanceState(outState);
     }
 
 
@@ -101,26 +196,32 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
         // Add a marker in Bangalore and move the camera
-        selectedLocation = new LatLng(17.3850, 78.4867);
         setPoints();
 
         mMap.setOnMapClickListener(new GoogleMap.OnMapClickListener() {
 
             @Override
             public void onMapClick(LatLng point) {
-
                 selectedLocation = point;
                 setPoints();
+
+                final SharedPreferences.Editor editor = getPreferences(Context.MODE_PRIVATE).edit();
+                editor.putFloat(KEY_SELECTED_LATITUDE, (float) point.latitude).apply();
+                editor.putFloat(KEY_SELECTED_LONGITUDE, (float) point.longitude).apply();
+
             }
         });
     }
 
+    @SuppressLint("MissingPermission")
     @AfterPermissionGranted(RC_LOCATION_PERM)
     private void setupLocationAccess() {
 
         if (hasLocationPermission()) {
-            Intent intent = new Intent(this, LocationService.class);
-            startService(intent);
+            Location lastKnownLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            currentLocation = new LatLng(lastKnownLocation.getLatitude(), lastKnownLocation.getLongitude());
+            setPoints();
+            Toast.makeText(this, "Location permission granted. \n 1. Tap Map \n 2. Enter radius \n 3. Set Alert", Toast.LENGTH_LONG).show();
         } else {
             // Ask for one permission
             EasyPermissions.requestPermissions(
@@ -146,7 +247,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     public void onPermissionsDenied(int requestCode, @NonNull List<String> perms) {
         Log.d(TAG, "onPermissionsDenied:" + requestCode + ":" + perms.size());
 
-        // (Optional) Check whether the user denied any permissions and checked "NEVER ASK AGAIN."
+        // Check whether the user denied any permissions and checked "NEVER ASK AGAIN."
         // This will display a dialog directing them to enable the permission in app settings.
         if (EasyPermissions.somePermissionPermanentlyDenied(this, perms)) {
             new AppSettingsDialog.Builder(this).build().show();
@@ -171,7 +272,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
     }
 
-    void setPoints() {
+    private void setPoints() {
         if (mMap != null && selectedLocation != null) {
             MarkerOptions marker = new MarkerOptions().position(selectedLocation).title("Center Point");
 
@@ -181,8 +282,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             mMap.addCircle(new CircleOptions()
                     .center(selectedLocation)
                     .radius(1000 * radiusInMeters)
-                    .strokeColor(mFillColorArgb)
-                    .fillColor(mFillColorArgb));
+                    .strokeColor(geoFenceColorArgb)
+                    .fillColor(geoFenceColorArgb));
         }
 
         if (mMap != null && currentLocation != null) {
@@ -208,19 +309,11 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     @Override
     public void update(Observable o, Object arg) {
-        Toast.makeText(this, String.valueOf("activity observer " + arg), Toast.LENGTH_SHORT).show();
         currentLocation = (LatLng) arg;
 
-        float[] results = new float[1];
-        Location.distanceBetween(selectedLocation.latitude, selectedLocation.longitude, currentLocation.latitude, currentLocation.longitude, results);
-        float distanceInMeters = results[0];
-        boolean isWithin = distanceInMeters < radiusInMeters * 1000;
-
-        if (distanceInMeters < radiusInMeters * 1000){
-            Toast.makeText(this, "IN", Toast.LENGTH_SHORT).show();
-        }else {
-            Toast.makeText(this, "OUT", Toast.LENGTH_SHORT).show();
-        }
+        final SharedPreferences.Editor editor = getPreferences(Context.MODE_PRIVATE).edit();
+        editor.putFloat(KEY_LOCATION_LATITUDE, (float) currentLocation.latitude).apply();
+        editor.putFloat(KEY_LOCATION_LONGITUDE, (float) currentLocation.longitude).apply();
 
         setPoints();
     }
