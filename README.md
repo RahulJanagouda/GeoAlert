@@ -13,9 +13,9 @@ A map is shown with the help of Play Services, however, Play services are not us
 ## LocationService :
 1. Once created this runs as a foreground service and monitors the device location with the help of android.location.LocationManager and android.location.LocationListener.
 2. Location fixes are requested based on the enabled providers.
-..2.1 As the use of GPS consumes more battery power this is only requested once in five minutes.
-..2.2 Also network location fixes cheap compared to GPS this is requested every minute.
-..2.3 Finally location updates provided by other apps requests, does not have any effects on the battery. So this is requested every time new fix is available.
+⋅⋅2.1 As the use of GPS consumes more battery power this is only requested once in five minutes.
+⋅⋅2.2 Also network location fixes cheap compared to GPS this is requested every minute.
+⋅⋅2.3 Finally location updates provided by other apps requests, does not have any effects on the battery. So this is requested every time new fix is available.
 3. This service runs with the notification to indicate the user that location is being tracked.  If tapped on the notification, MapsActivity will be opened and the user can stop the alert he had set.  The service continues to monitor the location even after the app is killed.
 4. Once any location fix is received from the above listeners BROADCAST_ACTION will be broadcasted.
 
