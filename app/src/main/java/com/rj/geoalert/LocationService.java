@@ -12,6 +12,8 @@ import android.os.IBinder;
 import android.util.Log;
 import android.widget.Toast;
 
+import java.util.List;
+
 import static android.location.LocationManager.GPS_PROVIDER;
 import static android.location.LocationManager.NETWORK_PROVIDER;
 import static com.rj.geoalert.Constants.DEFAULT_RADIUS;
@@ -26,7 +28,9 @@ public class LocationService extends Service {
     private static final int TWO_MINUTES = 1000 * 60 * 2;
 
     private static final long MIN_DISTANCE_CHANGE_FOR_UPDATES = 100; // 100 meters
-    private static final long MIN_TIME_BW_UPDATES = 1000 * 60 * 5 ; // 5 minute
+    private static final long MIN_TIME_BW_UPDATES_FOR_GPS = 1000 * 60 * 5; // 5 minute
+    private static final long MIN_TIME_BW_UPDATES_FOR_NETWORK = 1000 * 60 * 1; // 1 minute
+    private static final long MIN_TIME_BW_UPDATES_FOR_PASSIVE = 0; // 0 minute
     private static final String TAG = LocationService.class.getSimpleName();
 
     private LocationManager locationManager;
@@ -58,10 +62,17 @@ public class LocationService extends Service {
 
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         listener = new MyLocationListener();
-        locationManager.requestLocationUpdates(NETWORK_PROVIDER, MIN_TIME_BW_UPDATES, MIN_DISTANCE_CHANGE_FOR_UPDATES, listener);
-        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, MIN_TIME_BW_UPDATES, MIN_DISTANCE_CHANGE_FOR_UPDATES, listener);
-        locationManager.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, MIN_TIME_BW_UPDATES, MIN_DISTANCE_CHANGE_FOR_UPDATES, listener);
 
+        List<String> providers = locationManager.getProviders(true);
+        if (providers.contains(LocationManager.NETWORK_PROVIDER)) {
+            locationManager.requestLocationUpdates(NETWORK_PROVIDER, MIN_TIME_BW_UPDATES_FOR_NETWORK, MIN_DISTANCE_CHANGE_FOR_UPDATES, listener);
+        }
+        if (providers.contains(LocationManager.GPS_PROVIDER)) {
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, MIN_TIME_BW_UPDATES_FOR_GPS, MIN_DISTANCE_CHANGE_FOR_UPDATES, listener);
+        }
+        if (providers.contains(LocationManager.PASSIVE_PROVIDER)) {
+            locationManager.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER, MIN_TIME_BW_UPDATES_FOR_PASSIVE, MIN_DISTANCE_CHANGE_FOR_UPDATES, listener);
+        }
         return START_REDELIVER_INTENT;
     }
 
@@ -82,21 +93,21 @@ public class LocationService extends Service {
         }
 
         public void onProviderDisabled(String provider) {
-            if(provider.equalsIgnoreCase(NETWORK_PROVIDER)){
-                Toast.makeText(getApplicationContext(), "No Network", Toast.LENGTH_SHORT).show();
+            if (provider.equalsIgnoreCase(NETWORK_PROVIDER)) {
+                Toast.makeText(getApplicationContext(), "No Cellular Network", Toast.LENGTH_SHORT).show();
             }
 
-            if(provider.equalsIgnoreCase(GPS_PROVIDER)){
-                Toast.makeText(getApplicationContext(), "Please turn on GPS to work", Toast.LENGTH_SHORT).show();
+            if (provider.equalsIgnoreCase(GPS_PROVIDER)) {
+                Toast.makeText(getApplicationContext(), "Please turn on Location", Toast.LENGTH_SHORT).show();
             }
         }
 
         public void onProviderEnabled(String provider) {
-            if(provider.equalsIgnoreCase(NETWORK_PROVIDER)){
-                Toast.makeText(getApplicationContext(), "Network turned on", Toast.LENGTH_SHORT).show();
+            if (provider.equalsIgnoreCase(NETWORK_PROVIDER)) {
+                Toast.makeText(getApplicationContext(), "Cellular turned on", Toast.LENGTH_SHORT).show();
             }
 
-            if(provider.equalsIgnoreCase(GPS_PROVIDER)){
+            if (provider.equalsIgnoreCase(GPS_PROVIDER)) {
                 Toast.makeText(getApplicationContext(), "GPS turned on", Toast.LENGTH_SHORT).show();
             }
         }

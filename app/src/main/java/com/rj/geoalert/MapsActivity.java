@@ -47,6 +47,7 @@ import static com.rj.geoalert.Constants.KEY_LOCATION_LONGITUDE;
 import static com.rj.geoalert.Constants.KEY_SELECTED_LATITUDE;
 import static com.rj.geoalert.Constants.KEY_SELECTED_LONGITUDE;
 import static com.rj.geoalert.Constants.RC_LOCATION_PERM;
+import static com.rj.geoalert.LocationReceiver.NOTIFICATION_NUMBER;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, EasyPermissions.PermissionCallbacks, Observer {
 
@@ -296,6 +297,19 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             mMap.addMarker(marker);
             mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(currentLocation, 8));
 
+        }
+
+        float[] results = new float[1];
+
+        if (selectedLocation != null && currentLocation != null) {
+            Location.distanceBetween(selectedLocation.latitude, selectedLocation.longitude, currentLocation.latitude, currentLocation.longitude, results);
+            float distanceInMeters = results[0];
+            NotificationHelper notificationHelper = new NotificationHelper(this);
+            if (distanceInMeters < radiusInMeters * 1000) {
+                notificationHelper.notify(NOTIFICATION_NUMBER, notificationHelper.getAlertNotification("GeoAlert", "ENTERED"));
+            } else {
+                notificationHelper.notify(NOTIFICATION_NUMBER, notificationHelper.getAlertNotification("GeoAlert", "EXITED"));
+            }
         }
     }
 

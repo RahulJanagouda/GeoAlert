@@ -15,7 +15,7 @@ import static com.rj.geoalert.Constants.INTENT_KEY_RADIUS;
 import static com.rj.geoalert.LocationService.LOCATION_KEY;
 
 public class LocationReceiver extends BroadcastReceiver {
-    private static final int NOTIFICATION_NUMBER = 415;
+    public static final int NOTIFICATION_NUMBER = 415;
 
     @Override
     public void onReceive(Context context, Intent intent) {
